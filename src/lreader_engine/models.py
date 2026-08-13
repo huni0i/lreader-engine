@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, HttpUrl
 
 SourceLanguage = Literal["auto", "ja", "en", "zh", "ko"]
 TargetLanguage = Literal["ja", "en", "zh", "ko"]
-TranslationQuality = Literal["fast", "balanced"]
+TranslationQuality = Literal["fast", "ocr", "balanced"]
 InpaintingMethod = Literal["opencv", "lama"]
 
 
@@ -56,6 +56,7 @@ class TranslatedOcrRegion(OcrRegion):
 
 
 class ImageTranslationResult(BaseModel):
+    source_language: TargetLanguage
     regions: list[TranslatedOcrRegion]
     inpainted_image: str | None = None
 

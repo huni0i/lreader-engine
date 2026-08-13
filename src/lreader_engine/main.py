@@ -9,6 +9,8 @@ from lreader_engine.bubble_detector import BubbleDetector
 from lreader_engine.device import resolve_torch_device
 from lreader_engine.fast_ocr import FastOcrEngine
 from lreader_engine.inpainting import InpaintingEngine
+from lreader_engine.language_detector import detect_text_language
+from lreader_engine.manga_ocr import MangaOcrEngine
 from lreader_engine.mlx_translator import MlxTranslationEngine
 from lreader_engine.models import (
     ChapterRequest,
@@ -55,6 +57,11 @@ def high_quality_ocr() -> OcrEngine:
 
 
 @lru_cache(maxsize=1)
+def manga_ocr() -> MangaOcrEngine:
+    return MangaOcrEngine()
+
+
+@lru_cache(maxsize=1)
 def inpainter() -> InpaintingEngine:
     return InpaintingEngine()
 
@@ -80,17 +87,22 @@ def translate_path(
         image_path,
         fast_ocr(source_language).recognize_blocks(image_path),
     )
-    if quality == "balanced":
+    if quality in {"ocr", "balanced"}:
+        recognizer = (
+            manga_ocr().recognize_region
+            if source_language == "ja"
+            else high_quality_ocr().recognize_region
+        )
         regions = [
             region.model_copy(
                 update={
-                    "text": high_quality_ocr().recognize_region(
+                    "text": recognizer(
                         image_path,
                         region,
                     )
                 }
             )
-            if region.confidence < 0.8
+            if source_language == "ja" or region.confidence < 0.8
             else region
             for region in regions
         ]
@@ -112,6 +124,22 @@ def translate_path(
     ]
 
 
+def resolve_source_language(
+    image_path: Path,
+    source_language: SourceLanguage,
+) -> TargetLanguage:
+    if source_language != "auto":
+        return source_language
+
+    detected = detect_text_language(high_quality_ocr().spot(image_path))
+    if detected is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not automatically detect the source language.",
+        )
+    return detected
+
+
 def translate_and_inpaint(
     image_path: Path,
     source_language: SourceLanguage,
@@ -120,13 +148,18 @@ def translate_and_inpaint(
     inpaint: bool,
     inpaint_method: InpaintingMethod,
 ) -> ImageTranslationResult:
-    regions = translate_path(
+    resolved_source_language = resolve_source_language(
         image_path,
         source_language,
+    )
+    regions = translate_path(
+        image_path,
+        resolved_source_language,
         target_language,
         quality,
     )
     return ImageTranslationResult(
+        source_language=resolved_source_language,
         regions=regions,
         inpainted_image=(
             inpainter().erase_text(image_path, regions, inpaint_method)
