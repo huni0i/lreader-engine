@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field, HttpUrl
 
 SourceLanguage = Literal["auto", "ja", "en", "zh", "ko"]
 TargetLanguage = Literal["ja", "en", "zh", "ko"]
+TranslationQuality = Literal["fast", "balanced"]
+InpaintingMethod = Literal["opencv", "lama"]
 
 
 class ImageInput(BaseModel):
@@ -20,11 +22,42 @@ class ChapterRequest(BaseModel):
     images: list[ImageInput] = Field(min_length=1)
 
 
+class ImageUrlTranslationRequest(BaseModel):
+    url: HttpUrl
+    referrer: HttpUrl
+    source_language: SourceLanguage
+    target_language: TargetLanguage
+    quality: TranslationQuality = "balanced"
+    inpaint: bool = True
+    inpaint_method: InpaintingMethod = "opencv"
+
+
 class BoundingBox(BaseModel):
     x: float = Field(ge=0)
     y: float = Field(ge=0)
     width: float = Field(gt=0)
     height: float = Field(gt=0)
+
+
+class Point(BaseModel):
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+
+
+class OcrRegion(BaseModel):
+    polygon: list[Point] = Field(min_length=4, max_length=4)
+    text_polygons: list[list[Point]] = Field(default_factory=list)
+    text: str
+    confidence: float = Field(ge=0, le=1)
+
+
+class TranslatedOcrRegion(OcrRegion):
+    translated_text: str
+
+
+class ImageTranslationResult(BaseModel):
+    regions: list[TranslatedOcrRegion]
+    inpainted_image: str | None = None
 
 
 class TextRegion(BaseModel):
