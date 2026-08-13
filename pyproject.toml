@@ -14,6 +14,7 @@ dependencies = [
 ml = [
   "accelerate>=1.10",
   "easyocr>=1.7.2",
+  "manga-ocr>=0.1.11",
   "mlx-lm>=0.31",
   "pillow>=11.3",
   "simple-lama-inpainting-updated",
