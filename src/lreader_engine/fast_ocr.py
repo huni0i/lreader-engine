@@ -43,10 +43,14 @@ class FastOcrEngine:
         return [
             OcrRegion(
                 polygon=[
-                    Point(x=float(x), y=float(y)) for x, y in polygon
+                    Point(x=max(0, float(x)), y=max(0, float(y)))
+                    for x, y in polygon
                 ],
                 text_polygons=[
-                    [Point(x=float(x), y=float(y)) for x, y in polygon]
+                    [
+                        Point(x=max(0, float(x)), y=max(0, float(y)))
+                        for x, y in polygon
+                    ]
                 ],
                 text=text,
                 confidence=float(confidence),
