@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
+import lreader_engine.main as main
 from lreader_engine.main import app
 
 
@@ -26,14 +29,13 @@ def test_chapter_requires_images() -> None:
     assert response.status_code == 422
 
 
-def test_fast_ocr_requires_source_language() -> None:
-    response = client.post(
-        "/v1/images/translate",
-        params={
-            "source_language": "auto",
-            "target_language": "en",
-        },
-        files={"file": ("page.png", b"not-read", "image/png")},
-    )
+class FakeOcrEngine:
+    def spot(self, image_path: Path) -> str:
+        del image_path
+        return "오늘은 어디로 갈까?"
 
-    assert response.status_code == 422
+
+def test_source_language_is_detected_from_first_image(monkeypatch) -> None:
+    monkeypatch.setattr(main, "high_quality_ocr", lambda: FakeOcrEngine())
+
+    assert main.resolve_source_language(Path("page.png"), "auto") == "ko"
