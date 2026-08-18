@@ -22,13 +22,33 @@ ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
-COPY src ./src
 
 RUN python -m pip install --upgrade pip wheel \
     && python -m pip install \
         --index-url https://download.pytorch.org/whl/cu128 \
         torch torchvision \
-    && python -m pip install ".[cuda]"
+    && python - <<'PY'
+import subprocess
+import sys
+import tomllib
+
+with open("pyproject.toml", "rb") as file:
+    project = tomllib.load(file)["project"]
+
+dependencies = [
+    *project["dependencies"],
+    *project["optional-dependencies"]["cuda"],
+]
+dependencies = [
+    dependency
+    for dependency in dependencies
+    if not dependency.startswith(("torch", "torchvision"))
+]
+subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
+PY
+
+COPY src ./src
+RUN python -m pip install --no-deps .
 
 EXPOSE 8765
 
