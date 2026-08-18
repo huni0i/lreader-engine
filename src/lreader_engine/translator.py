@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import time
 from functools import cached_property
 
 import torch
@@ -204,6 +205,7 @@ class TranslationEngine:
             32,
             min(256, sum(len(text) for text in texts) * 2 + len(texts) * 10),
         )
+        start = time.perf_counter()
         outputs = self.model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
@@ -211,6 +213,13 @@ class TranslationEngine:
             repetition_penalty=1.05,
         )
         generated = outputs[0][inputs["input_ids"].shape[-1] :]
+        logger.info(
+            "batch generate seconds=%.2f prompt_tokens=%d new_tokens=%d limit=%d",
+            time.perf_counter() - start,
+            inputs["input_ids"].shape[-1],
+            generated.shape[-1],
+            max_new_tokens,
+        )
         result = self.tokenizer.decode(generated, skip_special_tokens=True)
         parsed = parse_numbered_translations(result, len(texts))
         if parsed is not None:

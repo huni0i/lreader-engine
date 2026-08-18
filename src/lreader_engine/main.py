@@ -1,6 +1,11 @@
+import logging
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import TypeVar
 
 import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -26,7 +31,26 @@ from lreader_engine.ocr import OcrEngine
 from lreader_engine.translator import TranslationEngine, contains_source_text
 
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
 app = FastAPI(title="Lreader local engine", version="0.1.0")
+
+
+@contextmanager
+def stage_timer(stage: str) -> Iterator[None]:
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        logger.info("stage=%s seconds=%.2f", stage, time.perf_counter() - start)
+
+
+def timed(stage: str, run: Callable[[], T]) -> T:
+    with stage_timer(stage):
+        return run()
 
 
 @lru_cache(maxsize=4)
@@ -85,33 +109,46 @@ def translate_path(
 
     used_spotting = False
     if source_language == "ja" and quality in {"ocr", "balanced"}:
-        detected_regions = high_quality_ocr().spot_regions(image_path)
+        detected_regions = timed(
+            "ocr.spotting",
+            lambda: high_quality_ocr().spot_regions(image_path),
+        )
         used_spotting = bool(detected_regions)
         if not detected_regions:
-            detected_regions = fast_ocr(source_language).recognize_blocks(image_path)
+            detected_regions = timed(
+                "ocr.fast",
+                lambda: fast_ocr(source_language).recognize_blocks(image_path),
+            )
     else:
-        detected_regions = fast_ocr(source_language).recognize_blocks(image_path)
+        detected_regions = timed(
+            "ocr.fast",
+            lambda: fast_ocr(source_language).recognize_blocks(image_path),
+        )
 
-    regions = bubble_detector().detect(image_path, detected_regions)
+    regions = timed(
+        "bubble.detect",
+        lambda: bubble_detector().detect(image_path, detected_regions),
+    )
     if quality in {"ocr", "balanced"} and not used_spotting:
         recognizer = (
             manga_ocr().recognize_region
             if source_language == "ja"
             else high_quality_ocr().recognize_region
         )
-        regions = [
-            region.model_copy(
-                update={
-                    "text": recognizer(
-                        image_path,
-                        region,
-                    )
-                }
-            )
-            if source_language == "ja" or region.confidence < 0.8
-            else region
-            for region in regions
-        ]
+        with stage_timer("ocr.recognize_regions"):
+            regions = [
+                region.model_copy(
+                    update={
+                        "text": recognizer(
+                            image_path,
+                            region,
+                        )
+                    }
+                )
+                if source_language == "ja" or region.confidence < 0.8
+                else region
+                for region in regions
+            ]
 
     translation_engine = (
         balanced_translator() if quality == "balanced" else fast_translator()
@@ -122,13 +159,21 @@ def translate_path(
         if region.confidence >= 0.2
         and contains_source_text(region.text, source_language)
     ]
+    logger.info(
+        "translating regions=%d texts=%r",
+        len(translatable_regions),
+        [region.text for region in translatable_regions],
+    )
     translations = (
         [region.text for region in translatable_regions]
         if source_language == target_language
-        else translation_engine.translate_many(
-            [region.text for region in translatable_regions],
-            source_language,
-            target_language,
+        else timed(
+            "translate.batch",
+            lambda: translation_engine.translate_many(
+                [region.text for region in translatable_regions],
+                source_language,
+                target_language,
+            ),
         )
     )
     return [
