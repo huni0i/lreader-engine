@@ -83,10 +83,13 @@ def translate_path(
             detail="The fast OCR path requires an explicit source language.",
         )
 
-    regions = bubble_detector().detect(
-        image_path,
-        fast_ocr(source_language).recognize_blocks(image_path),
-    )
+    detected_regions = fast_ocr(source_language).recognize_blocks(image_path)
+    if source_language == "ja" and quality in {"ocr", "balanced"}:
+        detected_regions = (
+            high_quality_ocr().spot_regions(image_path) or detected_regions
+        )
+
+    regions = bubble_detector().detect(image_path, detected_regions)
     if quality in {"ocr", "balanced"}:
         recognizer = (
             manga_ocr().recognize_region

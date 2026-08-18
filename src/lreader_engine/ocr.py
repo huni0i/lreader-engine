@@ -1,3 +1,4 @@
+import re
 from functools import cached_property
 from pathlib import Path
 
@@ -6,7 +7,11 @@ from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
 from lreader_engine.device import resolve_torch_device, resolve_torch_dtype
-from lreader_engine.models import OcrRegion
+from lreader_engine.models import OcrRegion, Point
+
+
+LOCATION_TOKEN = re.compile(r"<\|LOC_(\d+)\|>")
+SPECIAL_TOKEN = re.compile(r"<\|[^>]+\|>")
 
 
 class OcrEngine:
@@ -32,7 +37,7 @@ class OcrEngine:
         )
 
     @torch.inference_mode()
-    def spot(self, image_path: str | Path) -> str:
+    def _spot_output(self, image_path: str | Path) -> tuple[str, int, int]:
         image = Image.open(image_path).convert("RGB")
         width, height = image.size
 
@@ -68,7 +73,63 @@ class OcrEngine:
         ).to(self.device)
         outputs = self.model.generate(**inputs, max_new_tokens=1024)
         generated = outputs[0][inputs["input_ids"].shape[-1] :]
-        return self.processor.decode(generated, skip_special_tokens=True).strip()
+        return (
+            self.processor.decode(generated, skip_special_tokens=False).strip(),
+            width,
+            height,
+        )
+
+    @staticmethod
+    def parse_spotting_output(
+        output: str,
+        width: int,
+        height: int,
+    ) -> list[OcrRegion]:
+        tokens = list(LOCATION_TOKEN.finditer(output))
+        regions: list[OcrRegion] = []
+        text_start = 0
+
+        for token_start in range(0, len(tokens) - 7, 8):
+            group = tokens[token_start : token_start + 8]
+            text = SPECIAL_TOKEN.sub(
+                "",
+                output[text_start : group[0].start()],
+            ).strip()
+            text_start = group[-1].end()
+            if not text:
+                continue
+
+            coordinates = [
+                min(1000, max(0, int(token.group(1)))) for token in group
+            ]
+            polygon = [
+                Point(
+                    x=coordinates[index] / 1000 * width,
+                    y=coordinates[index + 1] / 1000 * height,
+                )
+                for index in range(0, 8, 2)
+            ]
+            regions.append(
+                OcrRegion(
+                    polygon=polygon,
+                    text_polygons=[polygon],
+                    text=text,
+                    confidence=0.9,
+                )
+            )
+
+        return regions
+
+    def spot_regions(self, image_path: str | Path) -> list[OcrRegion]:
+        output, width, height = self._spot_output(image_path)
+        return self.parse_spotting_output(output, width, height)
+
+    def spot(self, image_path: str | Path) -> str:
+        output, width, height = self._spot_output(image_path)
+        regions = self.parse_spotting_output(output, width, height)
+        if regions:
+            return "\n".join(region.text for region in regions)
+        return SPECIAL_TOKEN.sub("", output).strip()
 
     @torch.inference_mode()
     def recognize_region(
