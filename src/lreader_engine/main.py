@@ -23,7 +23,7 @@ from lreader_engine.models import (
     TranslationQuality,
 )
 from lreader_engine.ocr import OcrEngine
-from lreader_engine.translator import TranslationEngine
+from lreader_engine.translator import TranslationEngine, contains_source_text
 
 
 app = FastAPI(title="Lreader local engine", version="0.1.0")
@@ -116,17 +116,31 @@ def translate_path(
     translation_engine = (
         balanced_translator() if quality == "balanced" else fast_translator()
     )
+    translatable_regions = [
+        region
+        for region in regions
+        if region.confidence >= 0.2
+        and contains_source_text(region.text, source_language)
+    ]
+    translations = (
+        [region.text for region in translatable_regions]
+        if source_language == target_language
+        else translation_engine.translate_many(
+            [region.text for region in translatable_regions],
+            source_language,
+            target_language,
+        )
+    )
     return [
         TranslatedOcrRegion(
             **region.model_dump(),
-            translated_text=translation_engine.translate(
-                region.text,
-                source_language,
-                target_language,
-            ),
+            translated_text=translated_text,
         )
-        for region in regions
-        if region.confidence >= 0.2
+        for region, translated_text in zip(
+            translatable_regions,
+            translations,
+            strict=True,
+        )
     ]
 
 

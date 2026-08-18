@@ -16,6 +16,19 @@ LANGUAGE_NAMES: dict[TargetLanguage, str] = {
     "ko": "Korean",
 }
 
+SOURCE_TEXT_PATTERNS: dict[TargetLanguage, re.Pattern[str]] = {
+    "ja": re.compile(r"[\u3040-\u30ff\u3400-\u9fff]"),
+    "en": re.compile(r"[A-Za-z]"),
+    "zh": re.compile(r"[\u3400-\u9fff]"),
+    "ko": re.compile(r"[\u1100-\u11ff\u3130-\u318f\uac00-\ud7a3]"),
+}
+
+
+def contains_source_text(text: str, source_language: SourceLanguage) -> bool:
+    if source_language == "auto":
+        return bool(text.strip())
+    return bool(SOURCE_TEXT_PATTERNS[source_language].search(text))
+
 
 def clean_translation(result: str) -> str:
     result = re.split(
@@ -31,6 +44,22 @@ def clean_translation(result: str) -> str:
         flags=re.IGNORECASE,
     )
     return result.strip()
+
+
+def parse_numbered_translations(result: str, count: int) -> list[str] | None:
+    translations: dict[int, str] = {}
+    for match in re.finditer(
+        r"^\s*\[(\d+)\]\s*(.+?)\s*$",
+        result,
+        flags=re.MULTILINE,
+    ):
+        index = int(match.group(1))
+        if 0 <= index < count:
+            translations[index] = clean_translation(match.group(2))
+
+    if len(translations) != count:
+        return None
+    return [translations[index] for index in range(count)]
 
 
 class TranslationEngine:
@@ -99,10 +128,64 @@ class TranslationEngine:
         ).to(self.device)
         outputs = self.model.generate(
             **inputs,
-            max_new_tokens=256,
+            max_new_tokens=max(12, min(64, len(text) * 2 + 8)),
             do_sample=False,
             repetition_penalty=1.05,
         )
         generated = outputs[0][inputs["input_ids"].shape[-1] :]
         result = self.tokenizer.decode(generated, skip_special_tokens=True)
         return clean_translation(result)
+
+    @torch.inference_mode()
+    def translate_many(
+        self,
+        texts: list[str],
+        source_language: SourceLanguage,
+        target_language: TargetLanguage,
+    ) -> list[str]:
+        if not texts:
+            return []
+        if len(texts) == 1:
+            return [self.translate(texts[0], source_language, target_language)]
+        if source_language == "auto":
+            raise ValueError("Translation requires an explicit source language")
+
+        source_name = LANGUAGE_NAMES[source_language]
+        target_name = LANGUAGE_NAMES[target_language]
+        numbered_texts = "\n".join(
+            f"[{index}] {text}" for index, text in enumerate(texts)
+        )
+        prompt = (
+            f"Translate each numbered comic dialogue from {source_name} "
+            f"to {target_name}. Preserve meaning, tone, names, and sentence type. "
+            "Use surrounding lines as context, but translate every item separately. "
+            "Output exactly one translated line per item in the same [number] format. "
+            "Do not add explanations or language labels.\n\n"
+            f"{numbered_texts}"
+        )
+        inputs = self.tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+        ).to(self.device)
+        max_new_tokens = max(
+            32,
+            min(256, sum(len(text) for text in texts) * 2 + len(texts) * 10),
+        )
+        outputs = self.model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            repetition_penalty=1.05,
+        )
+        generated = outputs[0][inputs["input_ids"].shape[-1] :]
+        result = self.tokenizer.decode(generated, skip_special_tokens=True)
+        parsed = parse_numbered_translations(result, len(texts))
+        if parsed is not None:
+            return parsed
+
+        return [
+            self.translate(text, source_language, target_language) for text in texts
+        ]
