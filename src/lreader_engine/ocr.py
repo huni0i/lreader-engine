@@ -1,4 +1,6 @@
+import logging
 import re
+import time
 from functools import cached_property
 from pathlib import Path
 
@@ -9,6 +11,8 @@ from transformers import AutoModelForImageTextToText, AutoProcessor
 from lreader_engine.device import resolve_torch_device, resolve_torch_dtype
 from lreader_engine.models import OcrRegion, Point
 
+
+logger = logging.getLogger(__name__)
 
 LOCATION_TOKEN = re.compile(r"<\|LOC_(\d+)\|>")
 SPECIAL_TOKEN = re.compile(r"<\|[^>]+\|>")
@@ -71,8 +75,20 @@ class OcrEngine:
                 }
             },
         ).to(self.device)
+        prefill_start = time.perf_counter()
         outputs = self.model.generate(**inputs, max_new_tokens=1024)
         generated = outputs[0][inputs["input_ids"].shape[-1] :]
+        logger.info(
+            "spotting generate seconds=%.2f source=%dx%d fed=%dx%d "
+            "prompt_tokens=%d new_tokens=%d",
+            time.perf_counter() - prefill_start,
+            width,
+            height,
+            image.width,
+            image.height,
+            inputs["input_ids"].shape[-1],
+            generated.shape[-1],
+        )
         return (
             self.processor.decode(generated, skip_special_tokens=False).strip(),
             width,
