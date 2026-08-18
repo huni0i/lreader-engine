@@ -34,6 +34,21 @@ def test_parse_numbered_translations_rejects_missing_items() -> None:
     assert parse_numbered_translations("[0] 어디야?", 2) is None
 
 
+def test_parse_numbered_translations_accepts_common_model_formats() -> None:
+    assert parse_numbered_translations("0. 어디야?\n1. 여기는", 2) == [
+        "어디야?",
+        "여기는",
+    ]
+    assert parse_numbered_translations('["어디야?", "여기는"]', 2) == [
+        "어디야?",
+        "여기는",
+    ]
+    assert parse_numbered_translations("어디야?\n여기는", 2) == [
+        "어디야?",
+        "여기는",
+    ]
+
+
 def test_contains_source_text_rejects_numeric_false_positive() -> None:
     assert contains_source_text("ここは", "ja")
     assert not contains_source_text("379", "ja")

@@ -1,3 +1,5 @@
+import json
+import logging
 import os
 import re
 from functools import cached_property
@@ -8,6 +10,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from lreader_engine.device import resolve_torch_device, resolve_torch_dtype
 from lreader_engine.models import SourceLanguage, TargetLanguage
 
+
+logger = logging.getLogger(__name__)
 
 LANGUAGE_NAMES: dict[TargetLanguage, str] = {
     "ja": "Japanese",
@@ -47,19 +51,45 @@ def clean_translation(result: str) -> str:
 
 
 def parse_numbered_translations(result: str, count: int) -> list[str] | None:
+    stripped = result.strip().strip("`").strip()
+    try:
+        decoded = json.loads(stripped)
+    except json.JSONDecodeError:
+        decoded = None
+    if isinstance(decoded, list) and len(decoded) == count:
+        return [clean_translation(str(item)) for item in decoded]
+    if isinstance(decoded, dict) and all(
+        str(index) in decoded for index in range(count)
+    ):
+        return [
+            clean_translation(str(decoded[str(index)])) for index in range(count)
+        ]
+
     translations: dict[int, str] = {}
     for match in re.finditer(
-        r"^\s*\[(\d+)\]\s*(.+?)\s*$",
-        result,
+        r"^\s*(?:[-*]\s*)?[\[(]?(\d+)[\]).:\-]\s*(.+?)\s*$",
+        stripped,
         flags=re.MULTILINE,
     ):
         index = int(match.group(1))
         if 0 <= index < count:
             translations[index] = clean_translation(match.group(2))
 
-    if len(translations) != count:
-        return None
-    return [translations[index] for index in range(count)]
+    if len(translations) == count:
+        return [translations[index] for index in range(count)]
+
+    lines = [
+        clean_translation(re.sub(r"^\s*[-*]\s*", "", line))
+        for line in stripped.splitlines()
+        if line.strip()
+        and line.strip() not in {"```", "```json"}
+        and not re.fullmatch(
+            r"(?:Translations?|Korean|English|Japanese|Chinese):?",
+            line.strip(),
+            flags=re.IGNORECASE,
+        )
+    ]
+    return lines if len(lines) == count else None
 
 
 class TranslationEngine:
@@ -186,6 +216,7 @@ class TranslationEngine:
         if parsed is not None:
             return parsed
 
+        logger.warning("Could not parse batch translation output: %r", result)
         return [
             self.translate(text, source_language, target_language) for text in texts
         ]
