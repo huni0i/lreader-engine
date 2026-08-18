@@ -1,5 +1,6 @@
-from functools import cached_property
+import os
 import re
+from functools import cached_property
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -33,9 +34,13 @@ def clean_translation(result: str) -> str:
 
 
 class TranslationEngine:
-    model_id = "tencent/Hy-MT2-1.8B"
+    default_model_id = "tencent/Hy-MT2-1.8B"
 
     def __init__(self) -> None:
+        self.model_id = os.getenv(
+            "LREADER_TRANSLATION_MODEL",
+            self.default_model_id,
+        )
         self.device = resolve_torch_device()
         self.dtype = resolve_torch_dtype(self.device)
 
@@ -48,10 +53,20 @@ class TranslationEngine:
 
     @cached_property
     def model(self):
+        if self.device.type == "cuda":
+            return AutoModelForCausalLM.from_pretrained(
+                self.model_id,
+                dtype=self.dtype,
+                device_map={"": "cuda:0"},
+                low_cpu_mem_usage=True,
+                trust_remote_code=True,
+            ).eval()
+
         return (
             AutoModelForCausalLM.from_pretrained(
                 self.model_id,
                 dtype=self.dtype,
+                low_cpu_mem_usage=True,
                 trust_remote_code=True,
             )
             .to(self.device)
@@ -67,9 +82,12 @@ class TranslationEngine:
     ) -> str:
         if source_language == "auto":
             raise ValueError("Translation requires an explicit source language")
+        source_name = LANGUAGE_NAMES[source_language]
+        target_name = LANGUAGE_NAMES[target_language]
         prompt = (
-            f"Translate the following text into {LANGUAGE_NAMES[target_language]}. "
-            "Only output the translated result without any explanation:\n\n"
+            f"Translate this comic dialogue from {source_name} to {target_name}. "
+            "Preserve the original meaning, tone, names, and sentence type. "
+            "Only output the translated dialogue without any explanation:\n\n"
             f"{text}"
         )
         inputs = self.tokenizer.apply_chat_template(
