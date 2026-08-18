@@ -32,7 +32,40 @@ pytest
 Health check:
 
 ```bash
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8765/health
+```
+
+## RTX 3090 deployment
+
+The CUDA image uses Hy-MT2-7B, keeps one API worker, and stores downloaded
+models outside the container.
+
+```bash
+docker compose build
+docker compose up -d
+docker compose logs -f engine
+```
+
+Verify GPU use and service health:
+
+```bash
+docker compose exec engine nvidia-smi
+curl http://127.0.0.1:8765/health
+```
+
+The service binds only to the server loopback interface. From the client Mac,
+create a Tailscale SSH tunnel so the extension can keep using localhost:
+
+```bash
+ssh -N -L 8765:127.0.0.1:8765 huni0i@100.107.63.5
+```
+
+Stop or update the service:
+
+```bash
+docker compose down
+git pull
+docker compose up -d --build
 ```
 
 ## Planned pipeline
