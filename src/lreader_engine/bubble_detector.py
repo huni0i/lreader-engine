@@ -73,3 +73,22 @@ class BubbleDetector:
             )
 
         return region
+
+    def has_speech_bubbles(self, image_path: str | Path) -> bool:
+        image = cv2.imread(str(image_path))
+        if image is None:
+            return False
+
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        white = cv2.inRange(gray, 205, 255)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        connected = cv2.morphologyEx(white, cv2.MORPH_CLOSE, kernel)
+        count, _, stats, _ = cv2.connectedComponentsWithStats(connected)
+        if count <= 1:
+            return False
+
+        image_area = image.shape[0] * image.shape[1]
+        return any(
+            image_area * 0.01 <= stats[label, cv2.CC_STAT_AREA] <= image_area * 0.6
+            for label in range(1, count)
+        )

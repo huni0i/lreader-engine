@@ -33,3 +33,19 @@ def test_detect_expands_text_region_to_white_bubble(tmp_path: Path) -> None:
     assert min(ys) <= 25
     assert max(ys) >= 125
     assert detected.text_polygons == [text_polygon]
+
+
+def test_has_speech_bubbles_detects_a_white_ellipse(tmp_path: Path) -> None:
+    image_path = tmp_path / "bubble.png"
+    image = Image.new("RGB", (200, 150), "black")
+    ImageDraw.Draw(image).ellipse((30, 20, 170, 130), fill="white")
+    image.save(image_path)
+
+    assert BubbleDetector().has_speech_bubbles(image_path)
+
+
+def test_has_speech_bubbles_rejects_a_dark_page(tmp_path: Path) -> None:
+    image_path = tmp_path / "dark.png"
+    Image.new("RGB", (200, 150), (20, 12, 8)).save(image_path)
+
+    assert not BubbleDetector().has_speech_bubbles(image_path)

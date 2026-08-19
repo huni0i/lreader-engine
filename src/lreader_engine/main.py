@@ -107,11 +107,21 @@ def translate_path(
             detail="The fast OCR path requires an explicit source language.",
         )
 
-    detected_regions = timed(
-        "ocr.fast",
-        lambda: fast_ocr(source_language).recognize_blocks(image_path),
-    )
     used_spotting = False
+    use_fast_ocr = True
+    if source_language == "ja" and quality in {"ocr", "balanced"}:
+        use_fast_ocr = timed(
+            "bubble.probe",
+            lambda: bubble_detector().has_speech_bubbles(image_path),
+        )
+
+    detected_regions: list = []
+    if use_fast_ocr:
+        detected_regions = timed(
+            "ocr.fast",
+            lambda: fast_ocr(source_language).recognize_blocks(image_path),
+        )
+
     has_source_text = any(
         contains_source_text(region.text, source_language)
         for region in detected_regions
