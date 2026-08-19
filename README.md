@@ -53,12 +53,25 @@ docker compose exec engine nvidia-smi
 curl http://127.0.0.1:8765/health
 ```
 
-The service binds only to the server loopback interface. From the client Mac,
-create a Tailscale SSH tunnel so the extension can keep using localhost:
+The service binds to the server loopback interface by default. From the client
+Mac, create a Tailscale SSH tunnel so the extension can keep using localhost:
 
 ```bash
-ssh -N -L 8765:127.0.0.1:8765 huni0i@100.107.63.5
+ssh -fN -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -L 8765:127.0.0.1:8765 huni0i@100.107.63.5
 ```
+
+When the tunnel drops too often, bind the service to the Tailscale interface
+instead and let the extension reach the server directly. Create `.env` next to
+`compose.yaml` with the server Tailscale address:
+
+```bash
+echo "LREADER_BIND_ADDRESS=100.107.63.5" > .env
+docker compose up -d
+```
+
+The port stays private to the Tailscale network, so no LAN or public interface
+is exposed.
 
 Stop or update the service:
 

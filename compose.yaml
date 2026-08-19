@@ -14,7 +14,7 @@ services:
       - ./data/huggingface:/models/huggingface
       - ./data/easyocr:/app/.cache/easyocr
     ports:
-      - "127.0.0.1:8765:8765"
+      - "${LREADER_BIND_ADDRESS:-127.0.0.1}:8765:8765"
     shm_size: "2gb"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8765/health"]
