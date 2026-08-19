@@ -21,7 +21,7 @@ RUN python3 -m venv "${VIRTUAL_ENV}"
 ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 
 WORKDIR /app
-COPY pyproject.toml README.md ./
+COPY pyproject.toml ./
 
 RUN python -m pip install --upgrade pip wheel \
     && python -m pip install \
@@ -47,8 +47,11 @@ dependencies = [
 subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
 PY
 
+COPY README.md ./
 COPY src ./src
 RUN python -m pip install --no-deps .
+
+ENV PYTHONPATH=/app/src
 
 EXPOSE 8765
 
