@@ -18,18 +18,16 @@ logger = logging.getLogger(__name__)
 LOCATION_TOKEN = re.compile(r"<\|LOC_(\d+)\|>")
 SPECIAL_TOKEN = re.compile(r"<\|[^>]+\|>")
 
-UPSCALE_THRESHOLD = 1500
-
 
 def spotting_pixel_budget() -> int:
-    return int(os.getenv("LREADER_SPOTTING_PATCHES", "2048")) * 28 * 28
+    return int(os.getenv("LREADER_SPOTTING_PATCHES", "1024")) * 28 * 28
 
 
 def spotting_input_size(width: int, height: int, budget: int) -> tuple[int, int]:
-    scale = 2.0 if width < UPSCALE_THRESHOLD and height < UPSCALE_THRESHOLD else 1.0
-    pixels = width * height * scale * scale
-    if pixels > budget:
-        scale *= (budget / pixels) ** 0.5
+    pixels = width * height
+    if pixels <= budget:
+        return width, height
+    scale = (budget / pixels) ** 0.5
     return max(28, round(width * scale)), max(28, round(height * scale))
 
 

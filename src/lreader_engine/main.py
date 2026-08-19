@@ -107,23 +107,27 @@ def translate_path(
             detail="The fast OCR path requires an explicit source language.",
         )
 
+    detected_regions = timed(
+        "ocr.fast",
+        lambda: fast_ocr(source_language).recognize_blocks(image_path),
+    )
     used_spotting = False
-    if source_language == "ja" and quality in {"ocr", "balanced"}:
-        detected_regions = timed(
+    has_source_text = any(
+        contains_source_text(region.text, source_language)
+        for region in detected_regions
+    )
+    if (
+        source_language == "ja"
+        and quality in {"ocr", "balanced"}
+        and not has_source_text
+    ):
+        spotted_regions = timed(
             "ocr.spotting",
             lambda: high_quality_ocr().spot_regions(image_path),
         )
-        used_spotting = bool(detected_regions)
-        if not detected_regions:
-            detected_regions = timed(
-                "ocr.fast",
-                lambda: fast_ocr(source_language).recognize_blocks(image_path),
-            )
-    else:
-        detected_regions = timed(
-            "ocr.fast",
-            lambda: fast_ocr(source_language).recognize_blocks(image_path),
-        )
+        if spotted_regions:
+            detected_regions = spotted_regions
+            used_spotting = True
 
     regions = timed(
         "bubble.detect",
