@@ -11,6 +11,7 @@ services:
       LREADER_TRANSLATION_MODEL: tencent/Hy-MT2-7B
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
     volumes:
+      - ./src:/app/src:ro
       - ./data/huggingface:/models/huggingface
       - ./data/easyocr:/app/.cache/easyocr
     ports:

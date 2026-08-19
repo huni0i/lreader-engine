@@ -73,10 +73,17 @@ docker compose up -d
 The port stays private to the Tailscale network, so no LAN or public interface
 is exposed.
 
-Stop or update the service:
+The container reads the engine sources from the mounted `src` directory, so code
+changes only need a restart:
 
 ```bash
-docker compose down
+git pull
+docker compose restart engine
+```
+
+Rebuild only after changing `pyproject.toml` or the `Dockerfile`:
+
+```bash
 git pull
 docker compose up -d --build
 ```
