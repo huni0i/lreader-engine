@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import time
 from functools import cached_property
@@ -16,6 +17,20 @@ logger = logging.getLogger(__name__)
 
 LOCATION_TOKEN = re.compile(r"<\|LOC_(\d+)\|>")
 SPECIAL_TOKEN = re.compile(r"<\|[^>]+\|>")
+
+UPSCALE_THRESHOLD = 1500
+
+
+def spotting_pixel_budget() -> int:
+    return int(os.getenv("LREADER_SPOTTING_PATCHES", "2048")) * 28 * 28
+
+
+def spotting_input_size(width: int, height: int, budget: int) -> tuple[int, int]:
+    scale = 2.0 if width < UPSCALE_THRESHOLD and height < UPSCALE_THRESHOLD else 1.0
+    pixels = width * height * scale * scale
+    if pixels > budget:
+        scale *= (budget / pixels) ** 0.5
+    return max(28, round(width * scale)), max(28, round(height * scale))
 
 
 class OcrEngine:
@@ -45,11 +60,12 @@ class OcrEngine:
         image = Image.open(image_path).convert("RGB")
         width, height = image.size
 
-        if width < 1500 and height < 1500:
-            image = image.resize(
-                (width * 2, height * 2),
-                Image.Resampling.LANCZOS,
-            )
+        budget = spotting_pixel_budget()
+        target = spotting_input_size(width, height, budget)
+        resize_start = time.perf_counter()
+        if target != (width, height):
+            image = image.resize(target, Image.Resampling.BILINEAR)
+        resize_seconds = time.perf_counter() - resize_start
 
         messages = [
             {
@@ -60,6 +76,7 @@ class OcrEngine:
                 ],
             }
         ]
+        preprocess_start = time.perf_counter()
         inputs = self.processor.apply_chat_template(
             messages,
             add_generation_prompt=True,
@@ -71,16 +88,20 @@ class OcrEngine:
                     "shortest_edge": (
                         self.processor.image_processor.size.shortest_edge
                     ),
-                    "longest_edge": 2048 * 28 * 28,
+                    "longest_edge": budget,
                 }
             },
         ).to(self.device)
+        preprocess_seconds = time.perf_counter() - preprocess_start
+
         prefill_start = time.perf_counter()
-        outputs = self.model.generate(**inputs, max_new_tokens=1024)
+        outputs = self.model.generate(**inputs, max_new_tokens=256)
         generated = outputs[0][inputs["input_ids"].shape[-1] :]
         logger.info(
-            "spotting generate seconds=%.2f source=%dx%d fed=%dx%d "
-            "prompt_tokens=%d new_tokens=%d",
+            "spotting resize=%.2fs preprocess=%.2fs generate=%.2fs "
+            "source=%dx%d fed=%dx%d prompt_tokens=%d new_tokens=%d",
+            resize_seconds,
+            preprocess_seconds,
             time.perf_counter() - prefill_start,
             width,
             height,
