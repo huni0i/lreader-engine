@@ -1,6 +1,11 @@
 .venv/
 .cache/
-/data/
+/data/**
+!/data/README.md
+*.pt
+*.safetensors
+*.cbz
+*.cbr
 __pycache__/
 *.py[cod]
 .pytest_cache/
