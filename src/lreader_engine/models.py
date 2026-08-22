@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, HttpUrl
 SourceLanguage = Literal["auto", "ja", "en", "zh", "ko"]
 TargetLanguage = Literal["ja", "en", "zh", "ko"]
 TranslationQuality = Literal["fast", "ocr", "balanced"]
+OcrMode = Literal["route", "easy", "spot"]
 InpaintingMethod = Literal["opencv", "lama"]
 
 
@@ -28,6 +29,8 @@ class ImageUrlTranslationRequest(BaseModel):
     source_language: SourceLanguage
     target_language: TargetLanguage
     quality: TranslationQuality = "balanced"
+    ocr_mode: OcrMode = "route"
+    skip_translate: bool = False
     inpaint: bool = True
     inpaint_method: InpaintingMethod = "opencv"
 

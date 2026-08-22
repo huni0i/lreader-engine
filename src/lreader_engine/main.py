@@ -22,6 +22,7 @@ from lreader_engine.models import (
     ImageTranslationResult,
     ImageUrlTranslationRequest,
     InpaintingMethod,
+    OcrMode,
     SourceLanguage,
     TargetLanguage,
     TranslatedOcrRegion,
@@ -100,6 +101,8 @@ def translate_path(
     source_language: SourceLanguage,
     target_language: TargetLanguage,
     quality: TranslationQuality,
+    ocr_mode: OcrMode = "route",
+    skip_translate: bool = False,
 ) -> list[TranslatedOcrRegion]:
     if source_language == "auto":
         raise HTTPException(
@@ -108,8 +111,12 @@ def translate_path(
         )
 
     used_spotting = False
-    use_fast_ocr = True
-    if source_language == "ja" and quality in {"ocr", "balanced"}:
+    use_fast_ocr = ocr_mode != "spot"
+    if (
+        ocr_mode == "route"
+        and source_language == "ja"
+        and quality in {"ocr", "balanced"}
+    ):
         use_fast_ocr = timed(
             "bubble.probe",
             lambda: bubble_detector().has_speech_bubbles(image_path),
@@ -126,11 +133,13 @@ def translate_path(
         contains_source_text(region.text, source_language)
         for region in detected_regions
     )
-    if (
-        source_language == "ja"
+    run_spotting = ocr_mode == "spot" or (
+        ocr_mode == "route"
+        and source_language == "ja"
         and quality in {"ocr", "balanced"}
         and not has_source_text
-    ):
+    )
+    if run_spotting:
         spotted_regions = timed(
             "ocr.spotting",
             lambda: high_quality_ocr().spot_regions(image_path),
@@ -163,6 +172,16 @@ def translate_path(
                 else region
                 for region in regions
             ]
+
+    if skip_translate:
+        return [
+            TranslatedOcrRegion(
+                **region.model_dump(),
+                translated_text=region.text,
+            )
+            for region in regions
+            if (region.text or "").strip()
+        ]
 
     translation_engine = (
         balanced_translator() if quality == "balanced" else fast_translator()
@@ -226,6 +245,8 @@ def translate_and_inpaint(
     quality: TranslationQuality,
     inpaint: bool,
     inpaint_method: InpaintingMethod,
+    ocr_mode: OcrMode = "route",
+    skip_translate: bool = False,
 ) -> ImageTranslationResult:
     resolved_source_language = resolve_source_language(
         image_path,
@@ -236,13 +257,15 @@ def translate_and_inpaint(
         resolved_source_language,
         target_language,
         quality,
+        ocr_mode=ocr_mode,
+        skip_translate=skip_translate,
     )
     return ImageTranslationResult(
         source_language=resolved_source_language,
         regions=regions,
         inpainted_image=(
             inpainter().erase_text(image_path, regions, inpaint_method)
-            if inpaint
+            if inpaint and not skip_translate
             else None
         ),
     )
@@ -255,6 +278,8 @@ async def translate_image(
     quality: TranslationQuality = "fast",
     inpaint: bool = True,
     inpaint_method: InpaintingMethod = "opencv",
+    ocr_mode: OcrMode = "route",
+    skip_translate: bool = False,
     file: UploadFile = File(),
 ) -> ImageTranslationResult:
     suffix = Path(file.filename or "image.png").suffix or ".png"
@@ -272,6 +297,8 @@ async def translate_image(
             quality,
             inpaint,
             inpaint_method,
+            ocr_mode=ocr_mode,
+            skip_translate=skip_translate,
         )
     finally:
         if temp_path is not None:
@@ -310,6 +337,8 @@ async def translate_image_url(
             request.quality,
             request.inpaint,
             request.inpaint_method,
+            ocr_mode=request.ocr_mode,
+            skip_translate=request.skip_translate,
         )
     except httpx.HTTPError as error:
         raise HTTPException(
