@@ -3,8 +3,14 @@ from pathlib import Path
 
 from PIL import Image
 
-from lreader_engine.eval import Box, character_error_rate, match_boxes
-from lreader_engine.eval_datasets import load_comix_pages, load_synthetic_pages
+from lreader_engine.eval import Box, character_error_rate, match_boxes, matched_character_error_rates
+from lreader_engine.eval_datasets import (
+    assign_book_splits,
+    load_comix_pages,
+    load_manga109s_pages,
+    load_synthetic_pages,
+    write_book_split_csv,
+)
 from lreader_engine.synthetic_comics import generate_synthetic_split
 
 
@@ -66,3 +72,62 @@ def test_load_comix_pages_reads_fasterrcnn_text_boxes(tmp_path: Path) -> None:
     assert pages[0].language == "en"
     assert len(pages[0].boxes) == 2
     assert pages[0].boxes[0].left == 2
+
+
+def test_matched_cer_uses_iou_pairs() -> None:
+    gold = Box(left=0, top=0, right=10, bottom=10, text="abc")
+    predicted = Box(left=0, top=0, right=10, bottom=10, text="abx")
+
+    assert matched_character_error_rates([predicted], [gold]) == [1 / 3]
+
+
+def test_book_splits_are_disjoint_and_cover_every_book() -> None:
+    books = [f"book{index:02d}" for index in range(20)]
+    assignment = assign_book_splits(books, seed=42)
+
+    assert set(assignment) == set(books)
+    assert set(assignment.values()) == {"train", "val", "test"}
+    assert sum(split == "test" for split in assignment.values()) == 3
+    assert assign_book_splits(books, seed=42) == assignment
+
+
+def test_load_manga109s_pages_reads_text_boxes(tmp_path: Path) -> None:
+    images = tmp_path / "images" / "DemoBook"
+    images.mkdir(parents=True)
+    Image.new("RGB", (40, 60), "white").save(images / "002.jpg")
+    (tmp_path / "books.txt").write_text("DemoBook\n", encoding="utf-8")
+    (tmp_path / "annotations").mkdir()
+    (tmp_path / "annotations" / "DemoBook.xml").write_text(
+        """<?xml version="1.0" encoding="utf-8"?>
+<book title="DemoBook">
+  <pages>
+    <page index="0" width="40" height="60" />
+    <page index="2" width="40" height="60">
+      <text id="t1" xmin="4" ymin="5" xmax="18" ymax="20">あ</text>
+      <text id="t2" xmin="10" ymin="30" xmax="30" ymax="50">い</text>
+    </page>
+  </pages>
+</book>
+""",
+        encoding="utf-8",
+    )
+
+    pages = load_manga109s_pages(
+        tmp_path,
+        split=None,
+        assignment={"DemoBook": "test"},
+    )
+
+    assert len(pages) == 1
+    assert pages[0].id == "DemoBook/002"
+    assert pages[0].language == "ja"
+    assert [box.text for box in pages[0].boxes] == ["あ", "い"]
+
+
+def test_write_book_split_csv_round_trips(tmp_path: Path) -> None:
+    (tmp_path / "annotations").mkdir()
+    csv_path = tmp_path / "split.csv"
+    write_book_split_csv(csv_path, tmp_path, {"Demo": "test"})
+    text = csv_path.read_text(encoding="utf-8")
+    assert "Demo,test,0,0,0" in text
+

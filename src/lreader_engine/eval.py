@@ -117,6 +117,36 @@ def character_error_rate(predicted: str, gold: str) -> float:
     return levenshtein(predicted, gold) / len(gold)
 
 
+def matched_character_error_rates(
+    predicted: list[Box],
+    ground_truth: list[Box],
+    iou_threshold: float = 0.5,
+) -> list[float]:
+    pairs: list[tuple[float, int, int]] = []
+    for pred_index, pred in enumerate(predicted):
+        for gold_index, gold in enumerate(ground_truth):
+            score = pred.iou(gold)
+            if score >= iou_threshold:
+                pairs.append((score, pred_index, gold_index))
+    pairs.sort(reverse=True)
+
+    used_pred: set[int] = set()
+    used_gold: set[int] = set()
+    rates: list[float] = []
+    for _, pred_index, gold_index in pairs:
+        if pred_index in used_pred or gold_index in used_gold:
+            continue
+        used_pred.add(pred_index)
+        used_gold.add(gold_index)
+        rates.append(
+            character_error_rate(
+                predicted[pred_index].text or "",
+                ground_truth[gold_index].text or "",
+            )
+        )
+    return rates
+
+
 def mean(values: list[float]) -> float:
     if not values:
         return 0.0
