@@ -32,8 +32,10 @@ class InpaintingEngine:
         draw = ImageDraw.Draw(mask)
 
         for region in regions:
-            polygons = region.text_polygons or [region.polygon]
+            polygons = [region.polygon, *(region.text_polygons or [])]
             for polygon in polygons:
+                if len(polygon) < 3:
+                    continue
                 draw.polygon([(point.x, point.y) for point in polygon], fill=255)
 
         radius = max(3, min(12, round(min(image.size) * 0.006)))
