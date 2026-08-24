@@ -41,3 +41,35 @@ def test_erase_text_builds_expanded_mask_and_data_url(tmp_path: Path) -> None:
     assert fake_model.mask is not None
     assert fake_model.mask.getpixel((30, 30)) == 255
     assert fake_model.mask.getpixel((28, 30)) == 255
+
+
+def test_erase_text_masks_outer_box_not_just_glyphs(tmp_path: Path) -> None:
+    image_path = tmp_path / "page.png"
+    Image.new("RGB", (120, 80), "white").save(image_path)
+    outer = [
+        Point(x=10, y=10),
+        Point(x=110, y=10),
+        Point(x=110, y=70),
+        Point(x=10, y=70),
+    ]
+    inner = [
+        Point(x=40, y=30),
+        Point(x=80, y=30),
+        Point(x=80, y=50),
+        Point(x=40, y=50),
+    ]
+    region = OcrRegion(
+        polygon=outer,
+        text_polygons=[inner],
+        text="키링 샀는데",
+        confidence=0.8,
+    )
+    fake_model = FakeInpaintingModel()
+    engine = InpaintingEngine()
+    engine.__dict__["model"] = fake_model
+
+    engine.erase_text(image_path, [region], "lama")
+
+    assert fake_model.mask is not None
+    assert fake_model.mask.getpixel((12, 12)) == 255
+    assert fake_model.mask.getpixel((60, 40)) == 255
