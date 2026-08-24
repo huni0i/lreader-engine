@@ -8,7 +8,12 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 from lreader_engine.device import resolve_torch_device
-from lreader_engine.models import InpaintingMethod, OcrRegion
+from lreader_engine.models import InpaintingMethod, OcrRegion, Point
+
+
+def _mask_polygons(region: OcrRegion) -> list[list[Point]]:
+    polygons = [region.polygon, *(region.text_polygons or [])]
+    return [polygon for polygon in polygons if len(polygon) >= 3]
 
 
 class InpaintingEngine:
@@ -32,10 +37,7 @@ class InpaintingEngine:
         draw = ImageDraw.Draw(mask)
 
         for region in regions:
-            polygons = [region.polygon, *(region.text_polygons or [])]
-            for polygon in polygons:
-                if len(polygon) < 3:
-                    continue
+            for polygon in _mask_polygons(region):
                 draw.polygon([(point.x, point.y) for point in polygon], fill=255)
 
         radius = max(7, min(24, round(min(image.size) * 0.012)))
