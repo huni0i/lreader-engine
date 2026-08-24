@@ -29,6 +29,7 @@ from lreader_engine.models import (
     TranslationQuality,
 )
 from lreader_engine.ocr import OcrEngine
+from lreader_engine.ocr_cascade import select_primary_ocr, should_fallback_to_spotting
 from lreader_engine.translator import TranslationEngine, contains_source_text
 from lreader_engine.yolo_detector import YoloTextDetector
 
@@ -116,49 +117,48 @@ def translate_path(
             detail="The fast OCR path requires an explicit source language.",
         )
 
+    has_white_bubbles = False
+    if (
+        ocr_mode == "route"
+        and source_language == "ja"
+        and quality in {"ocr", "balanced"}
+    ):
+        has_white_bubbles = timed(
+            "bubble.probe",
+            lambda: bubble_detector().has_speech_bubbles(image_path),
+        )
+    primary = select_primary_ocr(
+        ocr_mode,
+        source_language,
+        quality,
+        has_white_bubbles,
+    )
+    logger.info("ocr.primary=%s white_bubbles=%s", primary, has_white_bubbles)
+
     used_spotting = False
     detected_regions: list = []
-    if ocr_mode == "yolo":
+    if primary == "yolo":
         try:
             detected_regions = timed(
                 "ocr.yolo",
                 lambda: yolo_detector().detect(image_path),
             )
-        except FileNotFoundError as error:
-            raise HTTPException(status_code=503, detail=str(error)) from error
-        except ImportError as error:
-            raise HTTPException(
-                status_code=503,
-                detail="ultralytics is not installed in the engine image.",
-            ) from error
-    else:
-        use_fast_ocr = ocr_mode != "spot"
-        if (
-            ocr_mode == "route"
-            and source_language == "ja"
-            and quality in {"ocr", "balanced"}
-        ):
-            use_fast_ocr = timed(
-                "bubble.probe",
-                lambda: bubble_detector().has_speech_bubbles(image_path),
-            )
-        if use_fast_ocr:
-            detected_regions = timed(
-                "ocr.fast",
-                lambda: fast_ocr(source_language).recognize_blocks(image_path),
-            )
-
-    has_source_text = any(
-        contains_source_text(region.text, source_language)
-        for region in detected_regions
-    )
-    run_spotting = ocr_mode == "spot" or (
-        ocr_mode == "route"
-        and source_language == "ja"
-        and quality in {"ocr", "balanced"}
-        and not has_source_text
-    )
-    if run_spotting:
+        except (FileNotFoundError, ImportError) as error:
+            if ocr_mode == "yolo":
+                status_detail = (
+                    str(error)
+                    if isinstance(error, FileNotFoundError)
+                    else "ultralytics is not installed in the engine image."
+                )
+                raise HTTPException(status_code=503, detail=status_detail) from error
+            logger.warning("yolo unavailable, falling back to spotting: %s", error)
+            primary = "spot"
+    if primary == "easy":
+        detected_regions = timed(
+            "ocr.fast",
+            lambda: fast_ocr(source_language).recognize_blocks(image_path),
+        )
+    if primary == "spot":
         spotted_regions = timed(
             "ocr.spotting",
             lambda: high_quality_ocr().spot_regions(image_path),
@@ -191,6 +191,29 @@ def translate_path(
                 else region
                 for region in regions
             ]
+
+    has_source_text = any(
+        contains_source_text(region.text, source_language)
+        for region in regions
+    )
+    if should_fallback_to_spotting(
+        ocr_mode,
+        source_language,
+        quality,
+        used_spotting=used_spotting,
+        has_source_text=has_source_text,
+    ):
+        spotted_regions = timed(
+            "ocr.spotting",
+            lambda: high_quality_ocr().spot_regions(image_path),
+        )
+        if spotted_regions:
+            detected_regions = spotted_regions
+            used_spotting = True
+            regions = timed(
+                "bubble.detect",
+                lambda: bubble_detector().detect(image_path, detected_regions),
+            )
 
     if skip_translate:
         return [
