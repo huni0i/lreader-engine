@@ -36,6 +36,9 @@ dev = [
   "httpx>=0.28",
   "pytest>=8.4",
 ]
+train = [
+  "ultralytics>=8.3",
+]
 
 [build-system]
 requires = ["hatchling"]
