@@ -38,7 +38,7 @@ class InpaintingEngine:
                     continue
                 draw.polygon([(point.x, point.y) for point in polygon], fill=255)
 
-        radius = max(3, min(12, round(min(image.size) * 0.006)))
+        radius = max(7, min(24, round(min(image.size) * 0.012)))
         mask = mask.filter(ImageFilter.MaxFilter(radius * 2 + 1))
         inpainted = (
             self.model(image, mask)
