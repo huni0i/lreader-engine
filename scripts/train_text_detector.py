@@ -82,20 +82,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=ROOT / "data" / "det-text")
     parser.add_argument("--train-limit", type=int, default=None)
     parser.add_argument("--val-limit", type=int, default=None)
-    parser.add_argument("--eval-limit", type=int, default=40)
-    parser.add_argument("--epochs", type=int, default=15)
-    parser.add_argument("--imgsz", type=int, default=640)
-    parser.add_argument("--batch", type=int, default=16)
-    parser.add_argument("--model", default="yolov8n.pt")
+    parser.add_argument(
+        "--eval-limit",
+        type=int,
+        default=0,
+        help="Max test pages to score after training. 0 means the full split.",
+    )
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--patience", type=int, default=20)
+    parser.add_argument("--imgsz", type=int, default=1280)
+    parser.add_argument("--batch", type=int, default=8)
+    parser.add_argument("--model", default="yolov8m.pt")
+    parser.add_argument("--run-name", default="text-detector-m")
     parser.add_argument("--skip-train", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    eval_limit = args.eval_limit or None
     train_pages = load_split(args.data_root, args.split_csv, "train", args.train_limit)
     val_pages = load_split(args.data_root, args.split_csv, "val", args.val_limit)
-    test_pages = load_split(args.data_root, args.split_csv, "test", args.eval_limit)
+    test_pages = load_split(args.data_root, args.split_csv, "test", eval_limit)
     if not train_pages or not val_pages:
         raise SystemExit("Manga109-s train/val pages missing")
 
@@ -120,21 +128,33 @@ def main() -> int:
         batch=args.batch,
         device=device,
         project=str(args.output_dir / "runs"),
-        name="text-detector",
+        name=args.run_name,
         exist_ok=True,
-        workers=2,
-        patience=5,
+        workers=8,
+        patience=args.patience,
         plots=False,
+        mosaic=0.0,
+        mixup=0.0,
+        copy_paste=0.0,
+        fliplr=0.5,
+        hsv_h=0.015,
+        hsv_s=0.4,
+        hsv_v=0.3,
     )
-    best = args.output_dir / "runs" / "text-detector" / "weights" / "best.pt"
+    best = args.output_dir / "runs" / args.run_name / "weights" / "best.pt"
     trained = YOLO(str(best))
     report = {
         "device": device,
         "model": args.model,
+        "imgsz": args.imgsz,
+        "batch": args.batch,
+        "epochs": args.epochs,
+        "patience": args.patience,
         "train_pages": len(train_pages),
         "val_pages": len(val_pages),
+        "test_pages": len(test_pages),
         "weights": str(best),
-        "val": evaluate_pages(trained, val_pages[: args.eval_limit]),
+        "val": evaluate_pages(trained, val_pages),
         "manga109s_test": evaluate_pages(trained, test_pages),
     }
     report_path = args.output_dir / "train_report.json"
