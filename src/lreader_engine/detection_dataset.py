@@ -4,11 +4,29 @@ from pathlib import Path
 
 from PIL import Image
 
-from lreader_engine.eval import EvalPage
+from lreader_engine.eval import Box, EvalPage
+from lreader_engine.models import OcrRegion, Point
 
 
 def page_stem(page: EvalPage) -> str:
     return page.id.replace("/", "_")
+
+
+def clamp_coord(value: float) -> float:
+    return max(0.0, float(value))
+
+
+def box_to_region(box: Box, text: str = "", confidence: float = 1.0) -> OcrRegion:
+    return OcrRegion(
+        polygon=[
+            Point(x=clamp_coord(box.left), y=clamp_coord(box.top)),
+            Point(x=clamp_coord(box.right), y=clamp_coord(box.top)),
+            Point(x=clamp_coord(box.right), y=clamp_coord(box.bottom)),
+            Point(x=clamp_coord(box.left), y=clamp_coord(box.bottom)),
+        ],
+        text=text,
+        confidence=confidence,
+    )
 
 
 def yolo_label_lines(page: EvalPage) -> list[str]:
