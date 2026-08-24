@@ -9,6 +9,7 @@ from typing import TypeVar
 
 import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 
 from lreader_engine.bubble_detector import BubbleDetector
 from lreader_engine.device import resolve_torch_device
@@ -40,6 +41,12 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 app = FastAPI(title="Lreader local engine", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @contextmanager
