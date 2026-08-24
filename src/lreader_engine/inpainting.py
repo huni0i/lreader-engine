@@ -60,7 +60,7 @@ class InpaintingEngine:
 
         for label in range(1, count):
             x, y, width, height, _ = stats[label]
-            margin = max(16, round(max(width, height) * 0.25))
+            margin = max(24, round(max(width, height) * 0.35))
             left = max(0, x - margin)
             top = max(0, y - margin)
             right = min(source.shape[1], x + width + margin)
