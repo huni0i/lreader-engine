@@ -70,7 +70,7 @@ class InpaintingEngine:
             result[top:bottom, left:right] = cv2.inpaint(
                 patch,
                 patch_mask,
-                4,
+                5,
                 cv2.INPAINT_TELEA,
             )
 
