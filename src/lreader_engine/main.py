@@ -30,6 +30,7 @@ from lreader_engine.models import (
 )
 from lreader_engine.ocr import OcrEngine
 from lreader_engine.translator import TranslationEngine, contains_source_text
+from lreader_engine.yolo_detector import YoloTextDetector
 
 
 logging.basicConfig(level=logging.INFO)
@@ -91,6 +92,11 @@ def inpainter() -> InpaintingEngine:
     return InpaintingEngine()
 
 
+@lru_cache(maxsize=1)
+def yolo_detector() -> YoloTextDetector:
+    return YoloTextDetector()
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -111,23 +117,36 @@ def translate_path(
         )
 
     used_spotting = False
-    use_fast_ocr = ocr_mode != "spot"
-    if (
-        ocr_mode == "route"
-        and source_language == "ja"
-        and quality in {"ocr", "balanced"}
-    ):
-        use_fast_ocr = timed(
-            "bubble.probe",
-            lambda: bubble_detector().has_speech_bubbles(image_path),
-        )
-
     detected_regions: list = []
-    if use_fast_ocr:
-        detected_regions = timed(
-            "ocr.fast",
-            lambda: fast_ocr(source_language).recognize_blocks(image_path),
-        )
+    if ocr_mode == "yolo":
+        try:
+            detected_regions = timed(
+                "ocr.yolo",
+                lambda: yolo_detector().detect(image_path),
+            )
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        except ImportError as error:
+            raise HTTPException(
+                status_code=503,
+                detail="ultralytics is not installed in the engine image.",
+            ) from error
+    else:
+        use_fast_ocr = ocr_mode != "spot"
+        if (
+            ocr_mode == "route"
+            and source_language == "ja"
+            and quality in {"ocr", "balanced"}
+        ):
+            use_fast_ocr = timed(
+                "bubble.probe",
+                lambda: bubble_detector().has_speech_bubbles(image_path),
+            )
+        if use_fast_ocr:
+            detected_regions = timed(
+                "ocr.fast",
+                lambda: fast_ocr(source_language).recognize_blocks(image_path),
+            )
 
     has_source_text = any(
         contains_source_text(region.text, source_language)

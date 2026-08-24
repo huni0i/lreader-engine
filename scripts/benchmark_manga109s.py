@@ -32,7 +32,7 @@ from lreader_engine.eval_datasets import (
 
 DEFAULT_ENGINE_URL = os.getenv("LREADER_ENGINE_URL", "http://100.107.63.5:8765")
 DEFAULT_SPLIT = ROOT / "evals" / "manga109s_book_split.csv"
-OCR_MODES = ("easy", "spot", "route")
+OCR_MODES = ("easy", "spot", "route", "yolo")
 
 
 def log(message: str) -> None:
