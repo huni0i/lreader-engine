@@ -49,6 +49,7 @@ PY
 
 COPY README.md ./
 COPY src ./src
+COPY static ./static
 RUN python -m pip install --no-deps .
 
 ENV PYTHONPATH=/app/src

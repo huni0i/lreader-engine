@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lreader Dashboard</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <h1>Lreader <span>research dashboard</span></h1>
+  <nav>
+    <button class="tab-btn active" data-tab="playground">Playground</button>
+    <button class="tab-btn" data-tab="research">Research</button>
+    <button class="tab-btn" data-tab="training">Training</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ===================== PLAYGROUND ===================== -->
+  <section id="tab-playground" class="tab active">
+    <div class="grid-2">
+      <div class="panel">
+        <h2>1. 이미지 업로드 & 옵션</h2>
+        <form id="playground-form">
+          <label>이미지 파일
+            <input type="file" id="pg-file" accept="image/*" required />
+          </label>
+          <div id="pg-preview-wrap" hidden>
+            <canvas id="pg-canvas"></canvas>
+          </div>
+          <div class="row">
+            <label>Source
+              <select id="pg-source">
+                <option value="ja">Japanese</option>
+                <option value="en">English</option>
+                <option value="zh">Chinese</option>
+                <option value="ko">Korean</option>
+                <option value="auto">Auto-detect</option>
+              </select>
+            </label>
+            <label>Target
+              <select id="pg-target">
+                <option value="ko">Korean</option>
+                <option value="en">English</option>
+                <option value="ja">Japanese</option>
+                <option value="zh">Chinese</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label>Quality
+              <select id="pg-quality">
+                <option value="fast">fast</option>
+                <option value="ocr" selected>ocr</option>
+                <option value="balanced">balanced</option>
+              </select>
+            </label>
+            <label>OCR mode
+              <select id="pg-mode">
+                <option value="route" selected>route</option>
+                <option value="easy">easy</option>
+                <option value="yolo">yolo</option>
+                <option value="spot">spot</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label class="checkbox"><input type="checkbox" id="pg-inpaint" checked /> Inpaint</label>
+            <label>Method
+              <select id="pg-inpaint-method">
+                <option value="opencv" selected>opencv</option>
+                <option value="lama">lama</option>
+              </select>
+            </label>
+            <label class="checkbox"><input type="checkbox" id="pg-skip-translate" /> OCR만 (번역 스킵)</label>
+          </div>
+          <label>Engine base URL (비워두면 이 페이지와 동일 서버)
+            <input type="text" id="pg-engine-url" placeholder="http://127.0.0.1:8765" />
+          </label>
+          <button type="submit" id="pg-submit">번역 실행</button>
+        </form>
+        <p class="hint" id="pg-status"></p>
+      </div>
+
+      <div class="panel">
+        <h2>2. 결과</h2>
+        <div id="pg-results" class="results">
+          <p class="hint">이미지를 올리고 실행하면 여기에 검출 박스, OCR/번역 텍스트, 인페인팅 결과가 표시됩니다.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== RESEARCH ===================== -->
+  <section id="tab-research" class="tab">
+    <div class="panel-header">
+      <h2>실험/벤치마크 대시보드</h2>
+      <button id="research-refresh">새로고침</button>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <h3>Manga109-s OCR cascade — mode 비교</h3>
+        <canvas id="chart-modes"></canvas>
+        <div id="modes-table"></div>
+      </div>
+      <div class="panel">
+        <h3>YOLO text detector — 학습 곡선</h3>
+        <canvas id="chart-curve"></canvas>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <h3>Detector train report</h3>
+        <pre id="train-report" class="json-block">불러오는 중...</pre>
+      </div>
+      <div class="panel">
+        <h3>OCR router / eval summary</h3>
+        <pre id="router-summary" class="json-block">불러오는 중...</pre>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Dataset catalog</h3>
+      <div id="catalog-table"></div>
+    </div>
+  </section>
+
+  <!-- ===================== TRAINING ===================== -->
+  <section id="tab-training" class="tab">
+    <div class="grid-2">
+      <div class="panel">
+        <h2>학습/벤치마크 실행</h2>
+        <form id="train-form">
+          <label>Script
+            <select id="train-script">
+              <option value="text-detector">text-detector (YOLO)</option>
+              <option value="ocr-router">ocr-router</option>
+              <option value="benchmark-manga109s">benchmark-manga109s</option>
+              <option value="benchmark-pipeline">benchmark-pipeline</option>
+              <option value="benchmark-yolo-ocr">benchmark-yolo-ocr</option>
+            </select>
+          </label>
+          <label>Args (공백으로 구분, 예: --batch 8 --imgsz 1280 --epochs 100 --patience 20)
+            <input type="text" id="train-args" placeholder="--batch 8 --imgsz 1280" />
+          </label>
+          <button type="submit">실행</button>
+        </form>
+        <p class="hint" id="train-status"></p>
+        <p class="hint">GPU는 하나뿐이라 한 번에 한 작업만 실행됩니다. 실행 중인 작업이 있으면 거부됩니다.</p>
+      </div>
+      <div class="panel">
+        <h2>작업 목록</h2>
+        <div id="jobs-list"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>로그</h2>
+      <pre id="job-log" class="json-block log-block">작업을 선택하면 로그가 표시됩니다.</pre>
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

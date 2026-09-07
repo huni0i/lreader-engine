@@ -12,6 +12,7 @@ services:
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
     volumes:
       - ./src:/app/src:ro
+      - ./static:/app/static:ro
       - ./scripts:/app/scripts:ro
       - ./evals:/app/evals:ro
       - ./data/huggingface:/models/huggingface
@@ -19,6 +20,10 @@ services:
       - ./data/manga109-s:/app/data/manga109-s:ro
       - ./data/det-text:/app/data/det-text
       - ./data/benchmarks:/app/data/benchmarks
+      - ./data/eval:/app/data/eval
+      - ./data/experiments:/app/data/experiments
+      - ./data/catalog.json:/app/data/catalog.json:ro
+      - ./data/dashboard_jobs:/app/data/dashboard_jobs
     ports:
       - "${LREADER_BIND_ADDRESS:-127.0.0.1}:8765:8765"
     shm_size: "2gb"

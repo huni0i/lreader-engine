@@ -10,8 +10,10 @@ from typing import TypeVar
 import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from lreader_engine.bubble_detector import BubbleDetector
+from lreader_engine.dashboard_api import router as dashboard_router
 from lreader_engine.device import resolve_torch_device
 from lreader_engine.fast_ocr import FastOcrEngine
 from lreader_engine.inpainting import InpaintingEngine
@@ -51,6 +53,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(dashboard_router)
+
+_DASHBOARD_DIR = Path(__file__).resolve().parents[2] / "static" / "dashboard"
+if _DASHBOARD_DIR.exists():
+    app.mount(
+        "/dashboard",
+        StaticFiles(directory=_DASHBOARD_DIR, html=True),
+        name="dashboard",
+    )
 
 
 @contextmanager
