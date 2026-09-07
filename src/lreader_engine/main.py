@@ -30,7 +30,11 @@ from lreader_engine.models import (
     TranslationQuality,
 )
 from lreader_engine.ocr import OcrEngine
-from lreader_engine.ocr_cascade import select_primary_ocr, should_fallback_to_spotting
+from lreader_engine.ocr_cascade import (
+    select_primary_ocr,
+    should_fallback_to_spotting,
+    should_rerecognize_region,
+)
 from lreader_engine.translator import TranslationEngine, contains_source_text
 from lreader_engine.yolo_detector import YoloTextDetector
 
@@ -124,23 +128,8 @@ def translate_path(
             detail="The fast OCR path requires an explicit source language.",
         )
 
-    has_white_bubbles = False
-    if (
-        ocr_mode == "route"
-        and source_language == "ja"
-        and quality in {"ocr", "balanced"}
-    ):
-        has_white_bubbles = timed(
-            "bubble.probe",
-            lambda: bubble_detector().has_speech_bubbles(image_path),
-        )
-    primary = select_primary_ocr(
-        ocr_mode,
-        source_language,
-        quality,
-        has_white_bubbles,
-    )
-    logger.info("ocr.primary=%s white_bubbles=%s", primary, has_white_bubbles)
+    primary = select_primary_ocr(ocr_mode, source_language, quality)
+    logger.info("ocr.primary=%s", primary)
 
     used_spotting = False
     detected_regions: list = []
@@ -178,23 +167,26 @@ def translate_path(
         "bubble.detect",
         lambda: bubble_detector().detect(image_path, detected_regions),
     )
-    if quality in {"ocr", "balanced"} and not used_spotting:
-        recognizer = (
-            manga_ocr().recognize_region
-            if source_language == "ja"
-            else high_quality_ocr().recognize_region
-        )
+    if (
+        source_language == "ja"
+        and quality in {"ocr", "balanced"}
+        and not used_spotting
+    ):
         with stage_timer("ocr.recognize_regions"):
             regions = [
                 region.model_copy(
                     update={
-                        "text": recognizer(
+                        "text": manga_ocr().recognize_region(
                             image_path,
                             region,
                         )
                     }
                 )
-                if source_language == "ja" or region.confidence < 0.8
+                if should_rerecognize_region(
+                    source_language,
+                    quality,
+                    region.confidence,
+                )
                 else region
                 for region in regions
             ]
