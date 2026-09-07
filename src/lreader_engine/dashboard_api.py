@@ -28,16 +28,20 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 def _read_json(path: Path):
-    if not path.exists():
+    # Bind-mounted dataset files (data/** is gitignored) may not exist on a
+    # given machine yet -- Docker/Compose then creates an empty directory in
+    # their place. Guard on is_file(), not just exists(), so a missing
+    # dataset file degrades to "no data" instead of a 500.
+    if not path.is_file():
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, OSError):
         return None
 
 
 def _read_csv_rows(path: Path) -> list[dict]:
-    if not path.exists():
+    if not path.is_file():
         return []
     with path.open(encoding="utf-8", newline="") as handle:
         return [dict(row) for row in csv.DictReader(handle)]
