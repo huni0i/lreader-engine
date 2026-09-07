@@ -264,6 +264,65 @@ function drawLineChart(canvas, labels, datasets, options = {}) {
   drawLegend(ctx, padding.left, 14, datasets);
 }
 
+async function loadResearch() {
+  let data;
+  try {
+    const response = await fetch("/api/dashboard/summary");
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`HTTP ${response.status}: ${detail}`);
+    }
+    data = await response.json();
+  } catch (error) {
+    const message = `/api/dashboard/summary 호출 실패: ${error}`;
+    document.getElementById("train-report").textContent = message;
+    document.getElementById("router-summary").textContent = message;
+    document.getElementById("modes-table").textContent = message;
+    document.getElementById("catalog-table").textContent = message;
+    console.error(message);
+    return;
+  }
+
+  // Each section is independent -- one failing must not stop the rest.
+  safely("modes chart", () => renderModesChart(data.manga109s_cascade));
+  safely("curve chart", () => renderCurveChart(data.detector_curve));
+  safely("train report", () => {
+    document.getElementById("train-report").textContent = data.detector_train_report
+      ? JSON.stringify(data.detector_train_report, null, 2)
+      : "아직 학습 리포트가 없습니다 (train_text_detector.py 실행 전).";
+  });
+  safely("router summary", () => {
+    document.getElementById("router-summary").textContent = JSON.stringify(
+      { ocr_router: data.ocr_router, eval_summary: data.eval_summary },
+      null,
+      2
+    );
+  });
+  safely("catalog", () => renderCatalog(data.catalog));
+}
+
+function safely(label, fn) {
+  try {
+    fn();
+  } catch (error) {
+    console.error(`[dashboard] ${label} failed:`, error);
+  }
+}
+
+function renderCatalog(catalog) {
+  const wrap = document.getElementById("catalog-table");
+  if (!catalog) {
+    wrap.textContent = "catalog.json 없음";
+    return;
+  }
+  let rows = "<table><tr><th>id</th><th>language</th><th>license</th><th>access</th></tr>";
+  catalog.forEach((item) => {
+    rows += `<tr><td>${item.id}</td><td>${(item.language || []).join(", ")}</td><td>${item.license}</td><td>${item.access}</td></tr>`;
+  });
+  rows += "</table>";
+  wrap.innerHTML = rows;
+}
+
 function renderModesChart(cascade) {
   const wrap = document.getElementById("modes-table");
   const canvas = document.getElementById("chart-modes");
