@@ -150,20 +150,49 @@ let chartModes = null;
 let chartCurve = null;
 
 async function loadResearch() {
-  const response = await fetch("/api/dashboard/summary");
-  const data = await response.json();
+  let data;
+  try {
+    const response = await fetch("/api/dashboard/summary");
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`HTTP ${response.status}: ${detail}`);
+    }
+    data = await response.json();
+  } catch (error) {
+    const message = `/api/dashboard/summary 호출 실패: ${error}`;
+    document.getElementById("train-report").textContent = message;
+    document.getElementById("router-summary").textContent = message;
+    document.getElementById("modes-table").textContent = message;
+    document.getElementById("catalog-table").textContent = message;
+    console.error(message);
+    return;
+  }
 
-  renderModesChart(data.manga109s_cascade);
-  renderCurveChart(data.detector_curve);
-  document.getElementById("train-report").textContent = data.detector_train_report
-    ? JSON.stringify(data.detector_train_report, null, 2)
-    : "아직 학습 리포트가 없습니다 (train_text_detector.py 실행 전).";
-  document.getElementById("router-summary").textContent = JSON.stringify(
-    { ocr_router: data.ocr_router, eval_summary: data.eval_summary },
-    null,
-    2
-  );
-  renderCatalog(data.catalog);
+  // Each section is independent -- one failing (e.g. a blocked chart CDN)
+  // must not stop the plain JSON/table sections from rendering.
+  safely("modes chart", () => renderModesChart(data.manga109s_cascade));
+  safely("curve chart", () => renderCurveChart(data.detector_curve));
+  safely("train report", () => {
+    document.getElementById("train-report").textContent = data.detector_train_report
+      ? JSON.stringify(data.detector_train_report, null, 2)
+      : "아직 학습 리포트가 없습니다 (train_text_detector.py 실행 전).";
+  });
+  safely("router summary", () => {
+    document.getElementById("router-summary").textContent = JSON.stringify(
+      { ocr_router: data.ocr_router, eval_summary: data.eval_summary },
+      null,
+      2
+    );
+  });
+  safely("catalog", () => renderCatalog(data.catalog));
+}
+
+function safely(label, fn) {
+  try {
+    fn();
+  } catch (error) {
+    console.error(`[dashboard] ${label} failed:`, error);
+  }
 }
 
 function renderModesChart(cascade) {
@@ -178,8 +207,11 @@ function renderModesChart(cascade) {
   const precision = modes.map((m) => cascade.modes[m].precision);
   const cer = modes.map((m) => cascade.modes[m].cer ?? 0);
 
-  if (chartModes) chartModes.destroy();
-  chartModes = new Chart(document.getElementById("chart-modes"), {
+  if (typeof Chart === "undefined") {
+    console.error("Chart.js did not load (blocked CDN?) -- skipping chart, table still renders below.");
+  } else {
+    if (chartModes) chartModes.destroy();
+    chartModes = new Chart(document.getElementById("chart-modes"), {
     type: "bar",
     data: {
       labels: modes,
@@ -191,9 +223,10 @@ function renderModesChart(cascade) {
     },
     options: {
       scales: { y: { beginAtZero: true, max: 1 } },
-      plugins: { legend: { labels: { color: "#e6e9ee" } } },
+      plugins: { legend: { labels: { color: "#1a1d23" } } },
     },
   });
+  }
 
   let rows = "<table><tr><th>mode</th><th>recall</th><th>precision</th><th>CER</th><th>latency(s)</th></tr>";
   modes.forEach((m) => {
@@ -214,6 +247,10 @@ function renderCurveChart(rows) {
   const recall = rows.map((r) => Number(r["metrics/recall(B)"]));
   const map50 = rows.map((r) => Number(r["metrics/mAP50(B)"]));
 
+  if (typeof Chart === "undefined") {
+    console.error("Chart.js did not load (blocked CDN?) -- skipping training curve chart.");
+    return;
+  }
   chartCurve = new Chart(document.getElementById("chart-curve"), {
     type: "line",
     data: {
@@ -226,7 +263,7 @@ function renderCurveChart(rows) {
     },
     options: {
       scales: { y: { beginAtZero: true, max: 1 } },
-      plugins: { legend: { labels: { color: "#e6e9ee" } } },
+      plugins: { legend: { labels: { color: "#1a1d23" } } },
     },
   });
 }
