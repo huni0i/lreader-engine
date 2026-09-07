@@ -146,60 +146,130 @@ function escapeHtml(text) {
 // ---------------------------------------------------------------------
 // Research
 // ---------------------------------------------------------------------
-let chartModes = null;
-let chartCurve = null;
-
-async function loadResearch() {
-  let data;
-  try {
-    const response = await fetch("/api/dashboard/summary");
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(`HTTP ${response.status}: ${detail}`);
-    }
-    data = await response.json();
-  } catch (error) {
-    const message = `/api/dashboard/summary 호출 실패: ${error}`;
-    document.getElementById("train-report").textContent = message;
-    document.getElementById("router-summary").textContent = message;
-    document.getElementById("modes-table").textContent = message;
-    document.getElementById("catalog-table").textContent = message;
-    console.error(message);
-    return;
-  }
-
-  // Each section is independent -- one failing (e.g. a blocked chart CDN)
-  // must not stop the plain JSON/table sections from rendering.
-  safely("modes chart", () => renderModesChart(data.manga109s_cascade));
-  safely("curve chart", () => renderCurveChart(data.detector_curve));
-  safely("train report", () => {
-    document.getElementById("train-report").textContent = data.detector_train_report
-      ? JSON.stringify(data.detector_train_report, null, 2)
-      : "아직 학습 리포트가 없습니다 (train_text_detector.py 실행 전).";
-  });
-  safely("router summary", () => {
-    document.getElementById("router-summary").textContent = JSON.stringify(
-      { ocr_router: data.ocr_router, eval_summary: data.eval_summary },
-      null,
-      2
-    );
-  });
-  safely("catalog", () => renderCatalog(data.catalog));
+// ---------------------------------------------------------------------
+// Tiny dependency-free chart helpers (no CDN -- some networks block them)
+// ---------------------------------------------------------------------
+function setupCanvas(canvas) {
+  const parent = canvas.parentElement;
+  const cssWidth = Math.max(280, parent.clientWidth);
+  const cssHeight = 280;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = cssWidth * ratio;
+  canvas.height = cssHeight * ratio;
+  canvas.style.width = `${cssWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
+  return { ctx, width: cssWidth, height: cssHeight };
 }
 
-function safely(label, fn) {
-  try {
-    fn();
-  } catch (error) {
-    console.error(`[dashboard] ${label} failed:`, error);
+function drawLegend(ctx, x, y, datasets) {
+  let cursorX = x;
+  ctx.font = "13px -apple-system, sans-serif";
+  ctx.textBaseline = "middle";
+  datasets.forEach((dataset) => {
+    ctx.fillStyle = dataset.color;
+    ctx.fillRect(cursorX, y - 5, 10, 10);
+    ctx.fillStyle = "#1a1d23";
+    ctx.fillText(dataset.label, cursorX + 15, y);
+    cursorX += ctx.measureText(dataset.label).width + 40;
+  });
+}
+
+function drawBarChart(canvas, labels, datasets, options = {}) {
+  const { ctx, width, height } = setupCanvas(canvas);
+  const maxValue = options.max ?? 1;
+  const padding = { top: 36, right: 16, bottom: 36, left: 40 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+
+  ctx.strokeStyle = "#e3e6eb";
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "11px -apple-system, sans-serif";
+  for (let i = 0; i <= 4; i++) {
+    const y = padding.top + plotHeight - (plotHeight * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y);
+    ctx.lineTo(width - padding.right, y);
+    ctx.stroke();
+    ctx.fillText(((maxValue * i) / 4).toFixed(2), 4, y + 3);
   }
+
+  const groupWidth = plotWidth / labels.length;
+  const barWidth = (groupWidth * 0.7) / datasets.length;
+  labels.forEach((label, groupIndex) => {
+    const groupX = padding.left + groupIndex * groupWidth + groupWidth * 0.15;
+    datasets.forEach((dataset, datasetIndex) => {
+      const value = dataset.data[groupIndex] ?? 0;
+      const barHeight = (value / maxValue) * plotHeight;
+      const x = groupX + datasetIndex * barWidth;
+      const y = padding.top + plotHeight - barHeight;
+      ctx.fillStyle = dataset.color;
+      ctx.fillRect(x, y, barWidth - 4, barHeight);
+    });
+    ctx.fillStyle = "#1a1d23";
+    ctx.textAlign = "center";
+    ctx.font = "13px -apple-system, sans-serif";
+    ctx.fillText(label, groupX + (groupWidth * 0.7) / 2, height - padding.bottom + 18);
+    ctx.textAlign = "left";
+  });
+
+  drawLegend(ctx, padding.left, 14, datasets);
+}
+
+function drawLineChart(canvas, labels, datasets, options = {}) {
+  const { ctx, width, height } = setupCanvas(canvas);
+  const maxValue = options.max ?? 1;
+  const padding = { top: 36, right: 16, bottom: 30, left: 40 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+
+  ctx.strokeStyle = "#e3e6eb";
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "11px -apple-system, sans-serif";
+  for (let i = 0; i <= 4; i++) {
+    const y = padding.top + plotHeight - (plotHeight * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y);
+    ctx.lineTo(width - padding.right, y);
+    ctx.stroke();
+    ctx.fillText(((maxValue * i) / 4).toFixed(2), 4, y + 3);
+  }
+
+  const stepX = labels.length > 1 ? plotWidth / (labels.length - 1) : 0;
+  datasets.forEach((dataset) => {
+    ctx.strokeStyle = dataset.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    dataset.data.forEach((value, index) => {
+      const x = padding.left + index * stepX;
+      const y = padding.top + plotHeight - (Math.min(value, maxValue) / maxValue) * plotHeight;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+
+  ctx.fillStyle = "#6b7280";
+  ctx.textAlign = "center";
+  const tickEvery = Math.max(1, Math.ceil(labels.length / 8));
+  labels.forEach((label, index) => {
+    if (index % tickEvery !== 0 && index !== labels.length - 1) return;
+    const x = padding.left + index * stepX;
+    ctx.fillText(String(label), x, height - padding.bottom + 16);
+  });
+  ctx.textAlign = "left";
+
+  drawLegend(ctx, padding.left, 14, datasets);
 }
 
 function renderModesChart(cascade) {
   const wrap = document.getElementById("modes-table");
+  const canvas = document.getElementById("chart-modes");
   if (!cascade || !cascade.modes) {
     wrap.textContent = "아직 벤치마크 결과가 없습니다 (benchmark_manga109s.py 실행 전).";
-    if (chartModes) { chartModes.destroy(); chartModes = null; }
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
     return;
   }
   const modes = Object.keys(cascade.modes);
@@ -207,26 +277,11 @@ function renderModesChart(cascade) {
   const precision = modes.map((m) => cascade.modes[m].precision);
   const cer = modes.map((m) => cascade.modes[m].cer ?? 0);
 
-  if (typeof Chart === "undefined") {
-    console.error("Chart.js did not load (blocked CDN?) -- skipping chart, table still renders below.");
-  } else {
-    if (chartModes) chartModes.destroy();
-    chartModes = new Chart(document.getElementById("chart-modes"), {
-    type: "bar",
-    data: {
-      labels: modes,
-      datasets: [
-        { label: "recall@0.5", data: recall, backgroundColor: "#5b8cff" },
-        { label: "precision", data: precision, backgroundColor: "#33c17a" },
-        { label: "CER", data: cer, backgroundColor: "#e0a53a" },
-      ],
-    },
-    options: {
-      scales: { y: { beginAtZero: true, max: 1 } },
-      plugins: { legend: { labels: { color: "#1a1d23" } } },
-    },
-  });
-  }
+  drawBarChart(canvas, modes, [
+    { label: "recall@0.5", data: recall, color: "#5b8cff" },
+    { label: "precision", data: precision, color: "#33c17a" },
+    { label: "CER", data: cer, color: "#e0a53a" },
+  ]);
 
   let rows = "<table><tr><th>mode</th><th>recall</th><th>precision</th><th>CER</th><th>latency(s)</th></tr>";
   modes.forEach((m) => {
@@ -238,8 +293,9 @@ function renderModesChart(cascade) {
 }
 
 function renderCurveChart(rows) {
-  if (chartCurve) { chartCurve.destroy(); chartCurve = null; }
+  const canvas = document.getElementById("chart-curve");
   if (!rows || !rows.length) {
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
     return;
   }
   const epochs = rows.map((r) => r.epoch);
@@ -247,39 +303,11 @@ function renderCurveChart(rows) {
   const recall = rows.map((r) => Number(r["metrics/recall(B)"]));
   const map50 = rows.map((r) => Number(r["metrics/mAP50(B)"]));
 
-  if (typeof Chart === "undefined") {
-    console.error("Chart.js did not load (blocked CDN?) -- skipping training curve chart.");
-    return;
-  }
-  chartCurve = new Chart(document.getElementById("chart-curve"), {
-    type: "line",
-    data: {
-      labels: epochs,
-      datasets: [
-        { label: "precision", data: precision, borderColor: "#5b8cff", fill: false },
-        { label: "recall", data: recall, borderColor: "#33c17a", fill: false },
-        { label: "mAP50", data: map50, borderColor: "#e0a53a", fill: false },
-      ],
-    },
-    options: {
-      scales: { y: { beginAtZero: true, max: 1 } },
-      plugins: { legend: { labels: { color: "#1a1d23" } } },
-    },
-  });
-}
-
-function renderCatalog(catalog) {
-  const wrap = document.getElementById("catalog-table");
-  if (!catalog) {
-    wrap.textContent = "catalog.json 없음";
-    return;
-  }
-  let rows = "<table><tr><th>id</th><th>language</th><th>license</th><th>access</th></tr>";
-  catalog.forEach((item) => {
-    rows += `<tr><td>${item.id}</td><td>${(item.language || []).join(", ")}</td><td>${item.license}</td><td>${item.access}</td></tr>`;
-  });
-  rows += "</table>";
-  wrap.innerHTML = rows;
+  drawLineChart(canvas, epochs, [
+    { label: "precision", data: precision, color: "#5b8cff" },
+    { label: "recall", data: recall, color: "#33c17a" },
+    { label: "mAP50", data: map50, color: "#e0a53a" },
+  ]);
 }
 
 document.getElementById("research-refresh").addEventListener("click", loadResearch);
